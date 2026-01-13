@@ -1,0 +1,137 @@
+receivers:
+  # 保留原有 OTLP 接收器（采集追踪/指标/日志）
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  # 保留原有 Prometheus 指标采集
+  prometheus:
+    config:
+      global:
+        scrape_interval: 60s
+      scrape_configs:
+        - job_name: otel-collector
+          static_configs:
+          - targets:
+              - localhost:8888
+            labels:
+              job_name: otel-collector
+  # ========== 新增：日志文件采集器（核心） ==========
+  filelog:
+    # 采集容器日志（根据你的实际日志路径调整，这是容器日志默认路径）
+    include: [/var/log/containers/*.log]
+    # 从日志开头开始采集
+    start_at: beginning
+    # 日志解析规则（提取嵌套的 trace_id/span_id 到顶层）
+    operators:
+      # 第一步：将日志整体解析为 JSON 格式
+      - type: json_parser
+        field: body
+        output: body_parsed
+      # 第二步：提取 body 内的 trace_id 到顶层 attributes（关键）
+      - type: move
+        from: body_parsed.trace_id
+        to: attributes.trace_id
+      # 提取 span_id 到顶层 attributes
+      - type: move
+        from: body_parsed.span_id
+        to: attributes.span_id
+      # 可选：提取其他需要检索的字段（如 service.name/request_id）
+      - type: move
+        from: body_parsed.service.name
+        to: attributes.service_name
+      - type: move
+        from: body_parsed.request_id
+        to: attributes.request_id
+
+processors:
+  # 保留原有批量处理器
+  batch:
+    send_batch_size: 10000
+    send_batch_max_size: 11000
+    timeout: 10s
+  # 保留原有资源检测处理器
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 2s
+  # 保留原有 Span 指标处理器
+  signozspanmetrics/delta:
+    metrics_exporter: signozclickhousemetrics
+    metrics_flush_interval: 60s
+    latency_histogram_buckets: [100us, 1ms, 2ms, 6ms, 10ms, 50ms, 100ms, 250ms, 500ms, 1000ms, 1400ms, 2000ms, 5s, 10s, 20s, 40s, 60s ]
+    dimensions_cache_size: 100000
+    aggregation_temporality: AGGREGATION_TEMPORALITY_DELTA
+    enable_exp_histogram: true
+    dimensions:
+      - name: service.namespace
+        default: default
+      - name: deployment.environment
+        default: default
+      - name: signoz.collector.id
+      - name: service.version
+      - name: browser.platform
+      - name: browser.mobile
+      - name: k8s.cluster.name
+      - name: k8s.node.name
+      - name: k8s.namespace.name
+      - name: host.name
+      - name: host.type
+      - name: container.name
+  # ========== 新增：Trace 关联处理器（核心） ==========
+  trace_parser:
+    # 从顶层 attributes 读取 trace_id/span_id，关联 Trace 数据
+    trace_id: attributes.trace_id
+    span_id: attributes.span_id
+
+extensions:
+  # 保留原有扩展
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+exporters:
+  # 保留原有追踪输出器
+  clickhousetraces:
+    datasource: tcp://clickhouse:9000/signoz_traces
+    low_cardinal_exception_grouping: ${env:LOW_CARDINAL_EXCEPTION_GROUPING}
+    use_new_schema: true
+  # 保留原有指标输出器
+  signozclickhousemetrics:
+    dsn: tcp://clickhouse:9000/signoz_metrics
+  # 保留原有日志输出器（调整名称适配）
+  clickhouselogsexporter:
+    dsn: tcp://clickhouse:9000/signoz_logs
+    timeout: 10s
+    use_new_schema: true
+
+service:
+  telemetry:
+    logs:
+      encoding: json
+  extensions:
+    - health_check
+    - pprof
+  pipelines:
+    # 保留原有追踪管道
+    traces:
+      receivers: [otlp]
+      processors: [signozspanmetrics/delta, batch]
+      exporters: [clickhousetraces]
+    # 保留原有指标管道
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [signozclickhousemetrics]
+    # 保留原有 Prometheus 指标管道
+    metrics/prometheus:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [signozclickhousemetrics]
+    # ========== 修改：日志管道（新增 filelog 接收器 + trace_parser 处理器） ==========
+    logs:
+      receivers: [otlp, filelog]  # 新增 filelog 采集文件日志
+      processors: [batch, trace_parser]  # 新增 trace_parser 关联 Trace
+      exporters: [clickhouselogsexporter]
