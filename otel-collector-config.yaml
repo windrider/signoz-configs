@@ -48,15 +48,16 @@ processors:
   resourcedetection:
     detectors: [env, system]
     timeout: 2s
-  # ========== 新增：从日志 body 中提取 trace_id/span_id ==========
+  # ========== 新增：从日志 body 中提取 trace_id/span_id 到 attributes ==========
   transform/logs:
     log_statements:
       - context: log
         statements:
-          # 如果 body 是 JSON 字符串，解析并提取 trace_id/span_id
+          # 解析 body JSON 字符串
           - set(cache["parsed"], ParseJSON(body)) where IsString(body)
-          - set(trace_id, TraceID(Substring(cache["parsed"]["trace_id"], 0, 32))) where cache["parsed"]["trace_id"] != nil
-          - set(span_id, SpanID(Substring(cache["parsed"]["span_id"], 0, 16))) where cache["parsed"]["span_id"] != nil
+          # 提取 trace_id/span_id 到 attributes，SigNoz 会从 attributes 中读取
+          - set(attributes["trace_id"], cache["parsed"]["trace_id"]) where cache["parsed"]["trace_id"] != nil
+          - set(attributes["span_id"], cache["parsed"]["span_id"]) where cache["parsed"]["span_id"] != nil
   # 保留原有 Span 指标处理器
   signozspanmetrics/delta:
     metrics_exporter: signozclickhousemetrics
