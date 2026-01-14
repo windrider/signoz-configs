@@ -11,6 +11,8 @@ services:
       options:
         max-size: 50m
         max-file: '3'
+    volumes:
+      - /data/clickhouse:/var/lib/clickhouse/
   zookeeper:
     image: 'signoz/zookeeper:3.9.3'
     user: root
@@ -181,7 +183,7 @@ services:
     command:
       - sync
       - '--dsn=tcp://clickhouse:9000'
-      - '--up='
+      - '--up'
     depends_on:
       clickhouse:
         condition: service_healthy
