@@ -20,31 +20,23 @@ receivers:
               job_name: otel-collector
   # ========== 新增：日志文件采集器（核心） ==========
   filelog:
-    # 采集容器日志（根据你的实际日志路径调整，这是容器日志默认路径）
+    # 采集容器日志（根据你的实际日志路径调整）
     include: [/var/log/containers/*.log]
-    # 从日志开头开始采集
-    start_at: beginning
-    # 日志解析规则（提取嵌套的 trace_id/span_id 到顶层）
+    # 从日志末尾开始采集（避免重复采集历史日志）
+    start_at: end
+    # 日志解析规则
     operators:
       # 第一步：将日志整体解析为 JSON 格式
       - type: json_parser
-        field: body
-        output: body_parsed
-      # 第二步：提取 body 内的 trace_id 到顶层 attributes（关键）
-      - type: move
-        from: body_parsed.trace_id
+        parse_from: body
+      # 第二步：从解析后的 body 提取 trace_id 到 attributes
+      - type: copy
+        from: body.trace_id
         to: attributes.trace_id
-      # 提取 span_id 到顶层 attributes
-      - type: move
-        from: body_parsed.span_id
+      # 提取 span_id 到 attributes
+      - type: copy
+        from: body.span_id
         to: attributes.span_id
-      # 可选：提取其他需要检索的字段（如 service.name/request_id）
-      - type: move
-        from: body_parsed.service.name
-        to: attributes.service_name
-      - type: move
-        from: body_parsed.request_id
-        to: attributes.request_id
 
 processors:
   # 保留原有批量处理器
@@ -79,11 +71,7 @@ processors:
       - name: host.name
       - name: host.type
       - name: container.name
-  # ========== 新增：Trace 关联处理器（核心） ==========
-  trace_parser:
-    # 从顶层 attributes 读取 trace_id/span_id，关联 Trace 数据
-    trace_id: attributes.trace_id
-    span_id: attributes.span_id
+  # 注意：SigNoz 会自动从 attributes.trace_id/span_id 关联 Trace，无需额外 processor
 
 extensions:
   # 保留原有扩展
@@ -133,5 +121,5 @@ service:
     # ========== 修改：日志管道（新增 filelog 接收器 + trace_parser 处理器） ==========
     logs:
       receivers: [otlp, filelog]  # 新增 filelog 采集文件日志
-      processors: [batch, trace_parser]  # 新增 trace_parser 关联 Trace
+      processors: [batch]  # SigNoz 自动关联 trace_id
       exporters: [clickhouselogsexporter]
