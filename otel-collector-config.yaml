@@ -48,6 +48,15 @@ processors:
   resourcedetection:
     detectors: [env, system]
     timeout: 2s
+  # ========== 新增：从日志 body 中提取 trace_id/span_id ==========
+  transform/logs:
+    log_statements:
+      - context: log
+        statements:
+          # 如果 body 是 JSON 字符串，解析并提取 trace_id/span_id
+          - set(cache["parsed"], ParseJSON(body)) where IsString(body)
+          - set(trace_id, TraceID(Substring(cache["parsed"]["trace_id"], 0, 32))) where cache["parsed"]["trace_id"] != nil
+          - set(span_id, SpanID(Substring(cache["parsed"]["span_id"], 0, 16))) where cache["parsed"]["span_id"] != nil
   # 保留原有 Span 指标处理器
   signozspanmetrics/delta:
     metrics_exporter: signozclickhousemetrics
@@ -121,5 +130,5 @@ service:
     # ========== 修改：日志管道（新增 filelog 接收器 + trace_parser 处理器） ==========
     logs:
       receivers: [otlp, filelog]  # 新增 filelog 采集文件日志
-      processors: [batch]  # SigNoz 自动关联 trace_id
+      processors: [transform/logs, batch]  # 先解析 trace_id，再批量处理
       exporters: [clickhouselogsexporter]
