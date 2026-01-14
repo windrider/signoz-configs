@@ -12,7 +12,7 @@ services:
         max-size: 50m
         max-file: '3'
     volumes:
-      - /data/clickhouse:/var/lib/clickhouse/
+      - '/data/clickhouse:/var/lib/clickhouse/'
   zookeeper:
     image: 'signoz/zookeeper:3.9.3'
     user: root
@@ -28,7 +28,7 @@ services:
         max-size: 50m
         max-file: '3'
     volumes:
-      - /data/zookeeper:/bitnami/zookeeper
+      - '/data/zookeeper:/bitnami/zookeeper'
     environment:
       - 'ALLOW_ANONYMOUS_LOGIN=${ZOO_ALLOW_ANONYMOUS_LOGIN:-yes}'
       - 'ZOO_AUTOPURGE_INTERVAL=${ZOO_AUTOPURGE_INTERVAL:-1}'
@@ -183,7 +183,7 @@ services:
     command:
       - sync
       - '--dsn=tcp://clickhouse:9000'
-      - '--up'
+      - '--up='
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -200,7 +200,7 @@ services:
         condition: service_healthy
       schema-migrator-sync:
         condition: service_completed_successfully
-    restart: 'no'  # async 任务不需要自动重启，避免卡住时无限循环
+    restart: 'no'
     exclude_from_hc: true
     logging:
       options:
@@ -209,4 +209,4 @@ services:
     command:
       - async
       - '--dsn=tcp://clickhouse:9000'
-      - '--up'  # 移除空值，或者直接删掉这行
+      - '--up'
