@@ -1,12 +1,12 @@
 receivers:
-  # 保留原有 OTLP 接收器（采集追踪/指标/日志）
+  # OTLP 接收器（采集追踪/指标/日志）
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
-  # 保留原有 Prometheus 指标采集
+  # Prometheus 指标采集
   prometheus:
     config:
       global:
@@ -18,25 +18,6 @@ receivers:
               - localhost:8888
             labels:
               job_name: otel-collector
-  # ========== 新增：日志文件采集器（核心） ==========
-  filelog:
-    # 采集容器日志（根据你的实际日志路径调整）
-    include: [/var/log/containers/*.log]
-    # 从日志末尾开始采集（避免重复采集历史日志）
-    start_at: end
-    # 日志解析规则
-    operators:
-      # 第一步：将日志整体解析为 JSON 格式
-      - type: json_parser
-        parse_from: body
-      # 第二步：从解析后的 body 提取 trace_id 到 attributes
-      - type: copy
-        from: body.trace_id
-        to: attributes.trace_id
-      # 提取 span_id 到 attributes
-      - type: copy
-        from: body.span_id
-        to: attributes.span_id
 
 processors:
   # 保留原有批量处理器
@@ -53,11 +34,12 @@ processors:
     log_statements:
       - context: log
         statements:
-          # 解析 body JSON 字符串
-          - set(cache["parsed"], ParseJSON(body)) where IsString(body)
-          # 提取 trace_id/span_id 到 attributes，SigNoz 会从 attributes 中读取
-          - set(attributes["trace_id"], cache["parsed"]["trace_id"]) where cache["parsed"]["trace_id"] != nil
-          - set(attributes["span_id"], cache["parsed"]["span_id"]) where cache["parsed"]["span_id"] != nil
+          # 如果 body 是字符串，解析 JSON 后提取
+          - set(attributes["trace_id"], ParseJSON(body)["trace_id"]) where IsString(body)
+          - set(attributes["span_id"], ParseJSON(body)["span_id"]) where IsString(body)
+          # 如果 body 已经是 map，直接提取
+          - set(attributes["trace_id"], body["trace_id"]) where IsMap(body)
+          - set(attributes["span_id"], body["span_id"]) where IsMap(body)
   # 保留原有 Span 指标处理器
   signozspanmetrics/delta:
     metrics_exporter: signozclickhousemetrics
@@ -128,8 +110,8 @@ service:
       receivers: [prometheus]
       processors: [batch]
       exporters: [signozclickhousemetrics]
-    # ========== 修改：日志管道（新增 filelog 接收器 + trace_parser 处理器） ==========
+    # 日志管道
     logs:
-      receivers: [otlp, filelog]  # 新增 filelog 采集文件日志
-      processors: [transform/logs, batch]  # 先解析 trace_id，再批量处理
+      receivers: [otlp]
+      processors: [transform/logs, batch]
       exporters: [clickhouselogsexporter]
