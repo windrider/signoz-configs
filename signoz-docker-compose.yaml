@@ -13,35 +13,12 @@ services:
         max-file: '3'
     volumes:
       - '/data/clickhouse:/var/lib/clickhouse/'
-  zookeeper:
-    image: 'signoz/zookeeper:3.9.3'
-    user: root
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - 'curl -s -m 2 http://localhost:8080/commands/ruok | grep error | grep null'
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    logging:
-      options:
-        max-size: 50m
-        max-file: '3'
-    volumes:
-      - '/data/zookeeper:/bitnami/zookeeper'
-    environment:
-      - 'ALLOW_ANONYMOUS_LOGIN=${ZOO_ALLOW_ANONYMOUS_LOGIN:-yes}'
-      - 'ZOO_AUTOPURGE_INTERVAL=${ZOO_AUTOPURGE_INTERVAL:-1}'
-      - 'ZOO_ENABLE_PROMETHEUS_METRICS=${ZOO_ENABLE_PROMETHEUS_METRICS:-yes}'
-      - 'ZOO_PROMETHEUS_METRICS_PORT_NUMBER=${ZOO_PROMETHEUS_METRICS_PORT_NUMBER:-9141}'
   clickhouse:
     image: 'clickhouse/clickhouse-server:25.5.6-alpine'
     tty: true
     depends_on:
       init-clickhouse:
         condition: service_completed_successfully
-      zookeeper:
-        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -74,10 +51,6 @@ services:
         target: /etc/clickhouse-server/custom-function.xml
       -
         type: bind
-        source: ./clickhouse/cluster.xml
-        target: /etc/clickhouse-server/config.d/cluster.xml
-      -
-        type: bind
         source: ./clickhouse/users.xml
         target: /etc/clickhouse-server/users.xml
       -
@@ -86,8 +59,8 @@ services:
         target: /etc/clickhouse-server/config.xml
   signoz:
     image: 'signoz/signoz:v0.97.1'
-    ports:
-      - '3301:8080'
+    expose:
+      - 8080
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -183,7 +156,7 @@ services:
     command:
       - sync
       - '--dsn=tcp://clickhouse:9000'
-      - '--up='
+      - '--cluster-name=cluster'
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -209,4 +182,5 @@ services:
     command:
       - async
       - '--dsn=tcp://clickhouse:9000'
+      - '--cluster-name=cluster'
       - '--up'

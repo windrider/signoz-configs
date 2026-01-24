@@ -20,6 +20,15 @@ receivers:
               job_name: otel-collector
 
 processors:
+  # 过滤 health check spans
+  filter/health:
+    traces:
+      span:
+        - 'name == "GET /health"'
+        - 'name == "GET /healthz"'
+        - 'name == "GET /ready"'
+        - 'name == "GET /readyz"'
+        - 'name == "GET /livez"'
   # 保留原有批量处理器
   batch:
     send_batch_size: 10000
@@ -98,7 +107,7 @@ service:
     # 保留原有追踪管道
     traces:
       receivers: [otlp]
-      processors: [signozspanmetrics/delta, batch]
+      processors: [filter/health, signozspanmetrics/delta, batch]
       exporters: [clickhousetraces]
     # 保留原有指标管道
     metrics:
